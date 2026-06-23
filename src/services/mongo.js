@@ -13,7 +13,6 @@ class MongoDBService {
     this.dbName = process.env.MONGODB_DATABASE || 'bikes_parser';
     this.collectionName = process.env.MONGODB_COLLECTION || 'bikes';
     
-    // Опциональные настройки авторизации
     this.user = process.env.MONGODB_USER;
     this.password = process.env.MONGODB_PASSWORD;
     this.authSource = process.env.MONGODB_AUTH_SOURCE || 'admin';
@@ -29,7 +28,6 @@ class MongoDBService {
         socketTimeoutMS: 45000,
       };
 
-      // Добавляем авторизацию если есть
       if (this.user && this.password) {
         options.auth = {
           username: this.user,
@@ -47,7 +45,6 @@ class MongoDBService {
       
       logger.info(`✅ Подключено к MongoDB: ${this.dbName}/${this.collectionName}`);
       
-      // Создаем индексы
       await this.createIndexes();
       
       return this;
@@ -70,7 +67,7 @@ class MongoDBService {
       
       // Индекс для поиска по id
       await this.collection.createIndex({ id: 1 });
-      
+      await this.collection.createIndex({ commentsCount: -1 });
       logger.info('✅ Индексы созданы');
     } catch (error) {
       logger.warn('⚠️ Ошибка создания индексов:', error.message);
@@ -90,38 +87,152 @@ class MongoDBService {
     try {
       logger.info(`💾 Сохранение ${products.length} продуктов в MongoDB...`);
       
-      const operations = products.map(product => ({
-        updateOne: {
-          filter: { 
-            // Используем id и url для уникальности
-            id: product.id,
-            url: product.url || config.parser.url
-          },
-          update: {
-            $set: {
-              ...product,
-              updatedAt: new Date().toISOString()
-            },
-            $setOnInsert: {
-              createdAt: new Date().toISOString()
-            }
-          },
-          upsert: true
-        }
-      }));
-
-      const result = await this.collection.bulkWrite(operations);
+      let inserted = 0;
+      let updated = 0;
       
-      logger.info(`✅ Сохранено: ${result.upsertedCount} новых, ${result.modifiedCount} обновлено`);
+      for (const product of products) {
+        // Проверяем, существует ли продукт
+        const existing = await this.collection.findOne({ 
+          id: product.id
+        });
+        
+        if (existing) {
+          // Обновляем существующий продукт
+          const updateData = {
+            name: product.name,
+            image: product.image,
+            url: product.url || config.parser.url,
+            parsedAt: product.parsedAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          
+          // Если есть commentsCount в данных - обновляем его
+          if (product.commentsCount !== undefined) {
+            updateData.commentsCount = product.commentsCount;
+          }
+          
+          await this.collection.updateOne(
+            { id: product.id },
+            { $set: updateData }
+          );
+          updated++;
+        } else {
+          // Создаем новый продукт
+          const newProduct = {
+            id: product.id,
+            name: product.name || 'Без названия',
+            image: product.image || '',
+            url: product.url || config.parser.url,
+            commentsCount: product.commentsCount || 0,
+            parsedAt: product.parsedAt || new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          
+          await this.collection.insertOne(newProduct);
+          inserted++;
+        }
+      }
+      
+      logger.info(`✅ Сохранено: ${inserted} новых, ${updated} обновлено`);
       
       return {
-        inserted: result.upsertedCount,
-        updated: result.modifiedCount,
+        inserted,
+        updated,
         total: products.length
       };
       
     } catch (error) {
-      logger.error('❌ Ошибка сохранения в MongoDB:', error.message);
+      logger.error('❌ Ошибка сохранения в MongoDB(mongo.js):', error.message);
+      throw error;
+    }
+  }
+
+  // Метод для обновления количества комментариев
+  async updateCommentsCount(productId, newCount) {
+    if (!this.connected) {
+      await this.connect();
+    }
+
+    try {
+      const result = await this.collection.updateOne(
+        { id: parseInt(productId) },
+        { 
+          $set: { 
+            commentsCount: newCount,
+            updatedAt: new Date().toISOString()
+          } 
+        }
+      );
+      
+      if (result.matchedCount === 0) {
+        logger.warn(`⚠️ Продукт с id ${productId} не найден`);
+        return null;
+      }
+      
+      logger.info(`✅ Обновлен commentsCount для продукта ${productId}: ${newCount}`);
+      return result;
+      
+    } catch (error) {
+      logger.error('❌ Ошибка обновления комментариев:', error.message);
+      throw error;
+    }
+  }
+
+  // Метод для инкремента комментариев
+  async incrementCommentsCount(productId) {
+    if (!this.connected) {
+      await this.connect();
+    }
+
+    try {
+      const result = await this.collection.updateOne(
+        { id: parseInt(productId) },
+        { 
+          $inc: { commentsCount: 1 },
+          $set: { updatedAt: new Date().toISOString() }
+        }
+      );
+      
+      if (result.matchedCount === 0) {
+        logger.warn(`⚠️ Продукт с id ${productId} не найден`);
+        return null;
+      }
+      
+      logger.info(`✅ Инкрементирован commentsCount для продукта ${productId}`);
+      return result;
+      
+    } catch (error) {
+      logger.error('❌ Ошибка инкремента комментариев:', error.message);
+      throw error;
+    }
+  }
+
+  // Метод для декремента комментариев (на случай удаления комментария)
+  async decrementCommentsCount(productId) {
+    if (!this.connected) {
+      await this.connect();
+    }
+
+    try {
+      const result = await this.collection.updateOne(
+        { id: parseInt(productId) },
+        { 
+          $inc: { commentsCount: -1 },
+          $set: { updatedAt: new Date().toISOString() }
+        }
+      );
+      
+      if (result.matchedCount === 0) {
+        logger.warn(`⚠️ Продукт с id ${productId} не найден`);
+        return null;
+      }
+      
+      logger.info(`✅ Декрементирован commentsCount для продукта ${productId}`);
+      return result;
+      
+    } catch (error) {
+      logger.error('❌ Ошибка декремента комментариев:', error.message);
       throw error;
     }
   }
@@ -203,6 +314,9 @@ class MongoDBService {
       const withImages = await this.collection.countDocuments({ 
         image: { $ne: '' } 
       });
+      const withComments = await this.collection.countDocuments({ 
+        commentsCount: { $gt: 0 } 
+      });
       const lastProduct = await this.collection
         .find({})
         .sort({ parsedAt: -1 })
@@ -213,6 +327,7 @@ class MongoDBService {
         total,
         withImages,
         withoutImages: total - withImages,
+        withComments,
         lastParsed: lastProduct.length > 0 ? lastProduct[0].parsedAt : null,
         lastProduct: lastProduct.length > 0 ? lastProduct[0] : null
       };
@@ -232,10 +347,8 @@ class MongoDBService {
   }
 }
 
-// Экспортируем синглтон
 export const mongoService = new MongoDBService();
 
-// Функция для проверки подключения
 export async function checkMongoConnection() {
   try {
     await mongoService.connect();

@@ -4,7 +4,7 @@ import Processor from '../core/processor.js';
 import Storage from '../services/storage.js';
 import { mongoService } from '../services/mongo.js';
 
-// Функция для генерации HTML сетки
+// Функция для генерации HTML сетки с комментариями
 function generateHTMLGrid(products) {
   const cards = products.map(p => `
     <div class="product-card">
@@ -14,7 +14,10 @@ function generateHTMLGrid(products) {
       </div>
       <div class="product-info">
         <h3>${p.name}</h3>
-        <span class="product-id">#${p.id}</span>
+        <div class="product-meta">
+          <span class="product-id">#${p.id}</span>
+          <span class="product-comments">💬 ${p.commentsCount || 0}</span>
+        </div>
       </div>
     </div>
   `).join('');
@@ -92,6 +95,12 @@ function generateHTMLGrid(products) {
             -webkit-box-orient: vertical;
             overflow: hidden;
         }
+        .product-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+        }
         .product-id {
             display: inline-block;
             font-size: 0.75em;
@@ -99,7 +108,14 @@ function generateHTMLGrid(products) {
             background: #f0f2f5;
             padding: 2px 10px;
             border-radius: 12px;
-            margin-top: 8px;
+        }
+        .product-comments {
+            display: inline-block;
+            font-size: 0.85em;
+            color: #667eea;
+            background: #eef2ff;
+            padding: 2px 10px;
+            border-radius: 12px;
         }
         .stats {
             display: flex;
@@ -137,6 +153,7 @@ function generateHTMLGrid(products) {
         <div class="stats">
             <span>📦 Всего: <span class="value">${products.length}</span></span>
             <span>🖼️ С картинками: <span class="value">${products.filter(p => p.image).length}</span></span>
+            <span>💬 С комментариями: <span class="value">${products.filter(p => p.commentsCount > 0).length}</span></span>
             <span>💾 MongoDB: <span class="mongo-status">✅ сохранено</span></span>
         </div>
     </div>
@@ -168,7 +185,6 @@ export class CLI {
     try {
       const url = args[0] || config.parser.url;
       
-      // Проверяем MongoDB перед парсингом
       console.log('🔌 Проверка MongoDB...');
       try {
         await mongoService.connect();
@@ -177,7 +193,6 @@ export class CLI {
         console.log('⚠️ MongoDB не доступна, данные будут сохранены только в файлы');
       }
       
-      // Парсим
       const products = await this.processor.process(url);
       
       if (products.length === 0) {
@@ -185,18 +200,17 @@ export class CLI {
         return;
       }
       
-      // Показываем примеры
       console.log('\n📋 Примеры продуктов:');
       products.slice(0, 5).forEach((p, i) => {
         console.log(`\n  ${i + 1}. ${p.name}`);
         console.log(`     🖼️ ${p.image}`);
+        console.log(`     💬 Комментариев: ${p.commentsCount || 0}`);
       });
       
       if (products.length > 5) {
         console.log(`\n  ... и еще ${products.length - 5} продуктов`);
       }
       
-      // Сохраняем результаты
       console.log('\n💾 Сохранение результатов...');
       const files = await this.storage.saveAll(products, generateHTMLGrid);
       
@@ -216,15 +230,14 @@ export class CLI {
       
       console.log('');
       
-      // Показываем статистику
       const stats = await mongoService.getStats().catch(() => null);
       if (stats) {
         console.log('📊 Всего в базе:');
         console.log(`   📦 ${stats.total} продуктов`);
         console.log(`   🖼️ ${stats.withImages} с картинками`);
+        console.log(`   💬 ${stats.withComments} с комментариями`);
       }
       
-      // Отключаемся от MongoDB
       await mongoService.disconnect();
       
     } catch (error) {
@@ -245,11 +258,13 @@ export class CLI {
         console.log(`  📦 Всего продуктов: ${stats.total}`);
         console.log(`  🖼️ С картинками: ${stats.withImages}`);
         console.log(`  📝 Без картинок: ${stats.withoutImages}`);
+        console.log(`  💬 С комментариями: ${stats.withComments}`);
         console.log(`  ⏱️ Последний парсинг: ${stats.lastParsed || 'Нет'}`);
         if (stats.lastProduct) {
           console.log(`\n  📋 Последний продукт:`);
           console.log(`     Название: ${stats.lastProduct.name}`);
           console.log(`     Картинка: ${stats.lastProduct.image || 'Нет'}`);
+          console.log(`     💬 Комментариев: ${stats.lastProduct.commentsCount || 0}`);
         }
       } else if (subCommand === 'list') {
         const limit = parseInt(args[1]) || 10;
@@ -258,18 +273,44 @@ export class CLI {
         result.products.forEach((p, i) => {
           console.log(`\n  ${i + 1}. ${p.name}`);
           console.log(`     🖼️ ${p.image || 'Нет'}`);
+          console.log(`     💬 Комментариев: ${p.commentsCount || 0}`);
           console.log(`     ⏱️ ${p.parsedAt}`);
         });
       } else if (subCommand === 'clean') {
         const days = parseInt(args[1]) || 30;
         const deleted = await mongoService.deleteOldProducts(days);
         console.log(`\n🗑️ Удалено ${deleted} продуктов старше ${days} дней`);
+      } else if (subCommand === 'comment') {
+        // Команда для тестового обновления комментариев
+        const productId = parseInt(args[1]);
+        const count = parseInt(args[2]) || 1;
+        if (!productId) {
+          console.log('\n⚠️ Укажите ID продукта: npm start mongo comment 1 5');
+          return;
+        }
+        const result = await mongoService.updateCommentsCount(productId, count);
+        if (result) {
+          console.log(`\n✅ Обновлен commentsCount для продукта ${productId}: ${count}`);
+        }
+      } else if (subCommand === 'increment') {
+        // Команда для инкремента комментариев
+        const productId = parseInt(args[1]);
+        if (!productId) {
+          console.log('\n⚠️ Укажите ID продукта: npm start mongo increment 1');
+          return;
+        }
+        const result = await mongoService.incrementCommentsCount(productId);
+        if (result) {
+          console.log(`\n✅ Инкрементирован commentsCount для продукта ${productId}`);
+        }
       } else {
         console.log(`
 Команды MongoDB:
-  stats        - Показать статистику
-  list [n]     - Показать последние n продуктов
-  clean [days] - Удалить продукты старше N дней
+  stats              - Показать статистику
+  list [n]           - Показать последние n продуктов
+  clean [days]       - Удалить продукты старше N дней
+  comment [id] [n]   - Установить количество комментариев для продукта
+  increment [id]     - Увеличить количество комментариев на 1
         `);
       }
       
@@ -285,16 +326,19 @@ export class CLI {
 📦 Парсер продуктов с MongoDB
 
 Использование:
-  npm start parse [url]     - Парсинг и сохранение в MongoDB
-  npm start mongo stats     - Статистика MongoDB
-  npm start mongo list [n]  - Последние n продуктов
-  npm start mongo clean [days] - Очистка старых записей
+  npm start parse [url]              - Парсинг и сохранение в MongoDB
+  npm start mongo stats              - Статистика MongoDB
+  npm start mongo list [n]           - Последние n продуктов
+  npm start mongo clean [days]       - Очистка старых записей
+  npm start mongo comment [id] [n]   - Установить кол-во комментариев
+  npm start mongo increment [id]     - Увеличить кол-во комментариев на 1
 
 Пример:
   npm start parse https://rentalbikes.ru
   npm start mongo stats
   npm start mongo list 5
-  npm start mongo clean 30
+  npm start mongo comment 1 10
+  npm start mongo increment 1
     `);
   }
 }

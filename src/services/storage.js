@@ -76,7 +76,7 @@ export class Storage {
       return result;
       
     } catch (error) {
-      logger.error('❌ Ошибка сохранения в MongoDB:', error.message);
+      logger.error('❌ Ошибка сохранения в MongoDB:', error);
       return null;
     }
   }

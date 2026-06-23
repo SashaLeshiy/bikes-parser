@@ -3,6 +3,7 @@ export class Product {
     this.id = data.id || null;
     this.name = data.name || '';
     this.image = data.image || '';
+    this.commentsCount = data.commentsCount || 0;  // Добавлено
     this.parsedAt = data.parsedAt || new Date().toISOString();
   }
   
@@ -11,6 +12,7 @@ export class Product {
       id: this.id,
       name: this.name,
       image: this.image,
+      commentsCount: this.commentsCount,  // Добавлено
       parsedAt: this.parsedAt
     };
   }
@@ -22,6 +24,7 @@ export class Product {
       id: index + 1,
       name: helpers.safeText(rawData, ''),
       image: imageSrc ? helpers.normalizeUrl(imageSrc, baseUrl) : '',
+      commentsCount: 0,  // По умолчанию 0, будет обновляться через API
       parsedAt: new Date().toISOString()
     });
     
