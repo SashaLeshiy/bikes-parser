@@ -19,7 +19,8 @@ export const config = {
   selectors: {
     product: process.env.SELECTOR_PRODUCT || '.products__item',
     image: process.env.SELECTOR_IMAGE || '.products__item-img img',
-    name: process.env.SELECTOR_NAME || '.products__item-info .products__item-name'
+    name: process.env.SELECTOR_NAME || '.products__item-info .products__item-name',
+    link: process.env.SELECTOR_LINK || '.products__item'
   },
   
   storage: {

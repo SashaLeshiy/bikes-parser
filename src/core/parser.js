@@ -37,11 +37,21 @@ export class Parser {
         
         // Извлекаем name
         const name = Helpers.safeText($element, this.options.selectors.name);
+
+        let productLink = '';
+        const href = $element.attr('href');
+        if (href) {
+          productLink = Helpers.normalizeUrl(href, baseUrl);
+          logger.info(`🔗 Найдена ссылка для продукта ${index + 1}: ${productLink}`);
+        } else {
+          logger.warn(`⚠️ Ссылка (href) не найдена для продукта ${index + 1}`);
+        }
         
         // Создаем продукт
         const product = new Product({
           id: index + 1,
           name: name || `Товар ${index + 1}`,
+          link: productLink, 
           image: image,
           parsedAt: new Date().toISOString()
         });
@@ -68,6 +78,12 @@ export class Parser {
       if (elements.length > 0) {
         const sample = elements.first().text().trim().substring(0, 100);
         logger.info(`  Пример: ${sample}`);
+
+        // Для ссылок показываем атрибут href
+        if (key === 'link') {
+          const href = elements.first().attr('href');
+          logger.info(`  href: ${href}`);
+        }
       }
     }
   }

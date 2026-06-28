@@ -68,6 +68,7 @@ class MongoDBService {
       // Индекс для поиска по id
       await this.collection.createIndex({ id: 1 });
       await this.collection.createIndex({ commentsCount: -1 });
+      await this.collection.createIndex({ link: 1 }); // Индекс для поиска по ссылке
       logger.info('✅ Индексы созданы');
     } catch (error) {
       logger.warn('⚠️ Ошибка создания индексов:', error.message);
@@ -102,6 +103,7 @@ class MongoDBService {
             name: product.name,
             image: product.image,
             url: product.url || config.parser.url,
+            link: product.link || '',
             parsedAt: product.parsedAt || new Date().toISOString(),
             updatedAt: new Date().toISOString()
           };
@@ -123,6 +125,7 @@ class MongoDBService {
             name: product.name || 'Без названия',
             image: product.image || '',
             url: product.url || config.parser.url,
+            link: product.link || '',
             commentsCount: product.commentsCount || 0,
             parsedAt: product.parsedAt || new Date().toISOString(),
             createdAt: new Date().toISOString(),
